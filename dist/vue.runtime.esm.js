@@ -667,6 +667,16 @@ var __assign = function() {
     return __assign.apply(this, arguments);
 };
 
+function __spreadArray(to, from, pack) {
+    if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+        if (ar || !(i in from)) {
+            if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+            ar[i] = from[i];
+        }
+    }
+    return to.concat(ar || Array.prototype.slice.call(from));
+}
+
 typeof SuppressedError === "function" ? SuppressedError : function (error, suppressed, message) {
     var e = new Error(message);
     return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
@@ -729,7 +739,7 @@ var Dep = /** @class */ (function () {
             var sub = subs[i];
             if (process.env.NODE_ENV !== 'production' && info) {
                 sub.onTrigger &&
-                    sub.onTrigger(__assign({ effect: subs[i] }, info));
+                    sub.onTrigger(__assign({ effect: sub }, info));
             }
             sub.update();
         }
@@ -2355,6 +2365,8 @@ function resolveSlots(children, context) {
     }
     // ignore slots that contains only whitespace
     for (var name_2 in slots) {
+        if (!slots.hasOwnProperty(name_2))
+            continue;
         if (slots[name_2].every(isWhitespace)) {
             delete slots[name_2];
         }
@@ -2681,8 +2693,9 @@ function renderMixin(Vue) {
         return nextTick(fn, this);
     };
     Vue.prototype._render = function () {
+        var _a, _b, _d;
         var vm = this;
-        var _a = vm.$options, render = _a.render, _parentVnode = _a._parentVnode;
+        var _e = vm.$options, render = _e.render, _parentVnode = _e._parentVnode;
         if (_parentVnode && vm._isMounted) {
             vm.$scopedSlots = normalizeScopedSlots(vm.$parent, _parentVnode.data.scopedSlots, vm.$slots, vm.$scopedSlots);
             if (vm._slotsProxy) {
@@ -2700,6 +2713,26 @@ function renderMixin(Vue) {
             setCurrentInstance(vm);
             currentRenderingInstance = vm;
             vnode = render.call(vm._renderProxy, vm.$createElement);
+            // merge vnode hook listeners, example： vnode.data.on.click.fns = [fn1, fn2, fn3], vm.$vnode.data.on.click.fns = [fn4, fn5, fn6], then vnode.data.on.click.fns = [fn1, fn2, fn3, fn4, fn5, fn6]
+            if (((_a = vnode === null || vnode === void 0 ? void 0 : vnode.data) === null || _a === void 0 ? void 0 : _a.on) && ((_d = (_b = vm === null || vm === void 0 ? void 0 : vm.$vnode) === null || _b === void 0 ? void 0 : _b.data) === null || _d === void 0 ? void 0 : _d.on)) {
+                Object.keys(vm.$vnode.data.on).forEach(function (key) {
+                    var _a, _b, _d, _e, _f, _g;
+                    if (vnode.data.on[key]) {
+                        var fnsOnVnode = vnode.data.on[key];
+                        if (typeof fnsOnVnode === 'function') {
+                            fnsOnVnode = [fnsOnVnode];
+                        }
+                        var fnsOnVm = (_d = (_b = (_a = vm.$vnode) === null || _a === void 0 ? void 0 : _a.data) === null || _b === void 0 ? void 0 : _b.on) === null || _d === void 0 ? void 0 : _d[key];
+                        if (typeof fnsOnVm === 'function') {
+                            fnsOnVm = [fnsOnVm];
+                        }
+                        vnode.data.on[key] = __spreadArray(__spreadArray([], fnsOnVnode, true), (fnsOnVm || []), true);
+                        if ((_g = (_f = (_e = vm.$vnode) === null || _e === void 0 ? void 0 : _e.data) === null || _f === void 0 ? void 0 : _f.on) === null || _g === void 0 ? void 0 : _g[key]) {
+                            delete vm.$vnode.data.on[key];
+                        }
+                    }
+                });
+            }
         }
         catch (e) {
             handleError(e, vm, "render");
@@ -5227,9 +5260,23 @@ var functionTypeCheckRE = /^\s*function (\w+)/;
  * because a simple equality check will fail when running
  * across different vms / iframes.
  */
-function getType(fn) {
+function getTypeName(fn) {
     var match = fn && fn.toString().match(functionTypeCheckRE);
     return match ? match[1] : '';
+}
+/**
+ * Build a cache for known types.
+ * We could build it dynamically, but since array are sometime requested,
+ * it fill up the cache for nothing.
+ * Type list is taken from https://vuejs.org/v2/guide/components-props.html#Type-Checks
+ */
+var TYPE_CACHE = new Map([String, Number, Boolean, Array, Object, Date, Function, Symbol, null, undefined].map(function (fn) { return [fn, getTypeName(fn)]; }));
+function getType(fn) {
+    var cached = TYPE_CACHE.get(fn);
+    if (cached !== undefined) {
+        return cached;
+    }
+    return getTypeName(fn);
 }
 function isSameType(a, b) {
     return getType(a) === getType(b);
@@ -7755,6 +7802,7 @@ var normalize = cached(function (prop) {
     }
 });
 function updateStyle(oldVnode, vnode) {
+    var _a;
     var data = vnode.data;
     var oldData = oldVnode.data;
     if (isUndef(data.staticStyle) &&
@@ -7784,6 +7832,14 @@ function updateStyle(oldVnode, vnode) {
         cur = newStyle[name];
         // ie9 setting to null has no effect, must use empty string
         setProp(el, name, cur == null ? '' : cur);
+    }
+    // determines if `v-show` is set, it has a higher priority.
+    if ('__vOriginalDisplay' in el) {
+        setProp(el, 'display', el.__vOriginalDisplay);
+        var vShowDirective = (_a = data.directives) === null || _a === void 0 ? void 0 : _a.find(function (d) { return d.name === 'show'; });
+        if (vShowDirective && !vShowDirective.value) {
+            setProp(el, 'display', 'none');
+        }
     }
 }
 var style = {

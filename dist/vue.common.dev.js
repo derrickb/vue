@@ -777,7 +777,7 @@ class Dep {
             const sub = subs[i];
             if (info) {
                 sub.onTrigger &&
-                    sub.onTrigger(Object.assign({ effect: subs[i] }, info));
+                    sub.onTrigger(Object.assign({ effect: sub }, info));
             }
             sub.update();
         }
@@ -2123,6 +2123,8 @@ function resolveSlots(children, context) {
     }
     // ignore slots that contains only whitespace
     for (const name in slots) {
+        if (!slots.hasOwnProperty(name))
+            continue;
         if (slots[name].every(isWhitespace)) {
             delete slots[name];
         }
@@ -2443,6 +2445,7 @@ function renderMixin(Vue) {
         return nextTick(fn, this);
     };
     Vue.prototype._render = function () {
+        var _a, _b, _d;
         const vm = this;
         const { render, _parentVnode } = vm.$options;
         if (_parentVnode && vm._isMounted) {
@@ -2462,6 +2465,29 @@ function renderMixin(Vue) {
             setCurrentInstance(vm);
             currentRenderingInstance = vm;
             vnode = render.call(vm._renderProxy, vm.$createElement);
+            // merge vnode hook listeners, example： vnode.data.on.click.fns = [fn1, fn2, fn3], vm.$vnode.data.on.click.fns = [fn4, fn5, fn6], then vnode.data.on.click.fns = [fn1, fn2, fn3, fn4, fn5, fn6]
+            if (((_a = vnode === null || vnode === void 0 ? void 0 : vnode.data) === null || _a === void 0 ? void 0 : _a.on) && ((_d = (_b = vm === null || vm === void 0 ? void 0 : vm.$vnode) === null || _b === void 0 ? void 0 : _b.data) === null || _d === void 0 ? void 0 : _d.on)) {
+                Object.keys(vm.$vnode.data.on).forEach((key) => {
+                    var _a, _b, _d, _e, _f, _g;
+                    if (vnode.data.on[key]) {
+                        let fnsOnVnode = vnode.data.on[key];
+                        if (typeof fnsOnVnode === 'function') {
+                            fnsOnVnode = [fnsOnVnode];
+                        }
+                        let fnsOnVm = (_d = (_b = (_a = vm.$vnode) === null || _a === void 0 ? void 0 : _a.data) === null || _b === void 0 ? void 0 : _b.on) === null || _d === void 0 ? void 0 : _d[key];
+                        if (typeof fnsOnVm === 'function') {
+                            fnsOnVm = [fnsOnVm];
+                        }
+                        vnode.data.on[key] = [
+                            ...fnsOnVnode,
+                            ...(fnsOnVm || []),
+                        ];
+                        if ((_g = (_f = (_e = vm.$vnode) === null || _e === void 0 ? void 0 : _e.data) === null || _f === void 0 ? void 0 : _f.on) === null || _g === void 0 ? void 0 : _g[key]) {
+                            delete vm.$vnode.data.on[key];
+                        }
+                    }
+                });
+            }
         }
         catch (e) {
             handleError(e, vm, `render`);
@@ -5652,9 +5678,23 @@ const functionTypeCheckRE = /^\s*function (\w+)/;
  * because a simple equality check will fail when running
  * across different vms / iframes.
  */
-function getType(fn) {
+function getTypeName(fn) {
     const match = fn && fn.toString().match(functionTypeCheckRE);
     return match ? match[1] : '';
+}
+/**
+ * Build a cache for known types.
+ * We could build it dynamically, but since array are sometime requested,
+ * it fill up the cache for nothing.
+ * Type list is taken from https://vuejs.org/v2/guide/components-props.html#Type-Checks
+ */
+const TYPE_CACHE = new Map([String, Number, Boolean, Array, Object, Date, Function, Symbol, null, undefined].map(fn => [fn, getTypeName(fn)]));
+function getType(fn) {
+    const cached = TYPE_CACHE.get(fn);
+    if (cached !== undefined) {
+        return cached;
+    }
+    return getTypeName(fn);
 }
 function isSameType(a, b) {
     return getType(a) === getType(b);
@@ -8207,6 +8247,7 @@ const normalize = cached(function (prop) {
     }
 });
 function updateStyle(oldVnode, vnode) {
+    var _a;
     const data = vnode.data;
     const oldData = oldVnode.data;
     if (isUndef(data.staticStyle) &&
@@ -8236,6 +8277,14 @@ function updateStyle(oldVnode, vnode) {
         cur = newStyle[name];
         // ie9 setting to null has no effect, must use empty string
         setProp(el, name, cur == null ? '' : cur);
+    }
+    // determines if `v-show` is set, it has a higher priority.
+    if ('__vOriginalDisplay' in el) {
+        setProp(el, 'display', el.__vOriginalDisplay);
+        const vShowDirective = (_a = data.directives) === null || _a === void 0 ? void 0 : _a.find(d => d.name === 'show');
+        if (vShowDirective && !vShowDirective.value) {
+            setProp(el, 'display', 'none');
+        }
     }
 }
 var style$1 = {
