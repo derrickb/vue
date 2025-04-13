@@ -52,8 +52,7 @@ function buildEntry (config) {
             ascii_only: true,
           }
         });
-        const minified = (banner ? banner + '\n' : '') + minifiedCode
-        return write(file, minified, true)
+        return write(file, minifiedCode, true)
       } else {
         return write(file, code)
       }
